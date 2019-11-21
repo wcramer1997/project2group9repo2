@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = FALSE)
 library(tidyverse)
 library(lubridate)
 library(ggthemes) 
+library(stringr)
 cards <- read_csv("cards.csv")
 sets <- read_csv("sets.csv")
 ```
@@ -150,9 +151,48 @@ power_to_toughness_graph
 When broken down by tribe, however, these differences come to light. Never would one find a goblin with toughness far exceeding its power; conversely, the peaceful and hardy race of sentient trees called "Treefolk" are known for their gentle nature and impenetrable, tough bark. 
 
 ```{r}
+# doing some wrangling with strings, taking out all the commas and spaces 
+
+creatures_wrangled <- creatures %>%
+  mutate(
+    wrangled_subtypes = str_replace(subtypes, ", ", "")) %>% # running it again for creatures with three subtypes 
+  mutate(
+    final_subtypes = str_replace(wrangled_subtypes, ", ", ""))
+  
+humans <- master %>%
+    filter(grepl("Human", subtypes))
+
+humans_wrangled <- humans %>%
+  mutate(
+    wrangled_subtypes = str_replace(subtypes, ", ", "")) %>%
+  mutate(
+    final_subtypes =  str_replace(wrangled_subtypes, ", ", ""))
+
+# grepl should work better now
+
+humans_wrangled %>%
+  filter(grepl("Wizard", final_subtypes)) # returns 782 rows 
+
+ # not sure how to make this function work, but if I can, we can use it to find subtypes within subtypes really easily with lapply  
+
+find_jobs_function <- 
+  function(job_type) 
+  {creatures_wrangled %>%
+      filter(
+      grepl("job_type", final_subtypes))
+  }
+
+```
+
+
+
+```
+
+
+```{r}
 power_to_toughness_by_tribe <- creatures %>%
 filter(
-  subtypes == "Zombie" | subtypes == "Goblin" | subtypes == "Beast" | subtypes == "Dragon") %>%
+  subtypes == "Zombie" | subtypes == "Goblin" | subtypes == "Treefolk" | subtypes == "Dragon") %>%
 group_by(
     power, toughness, subtypes) %>%
 summarize(
@@ -167,7 +207,7 @@ power_to_toughness_by_tribe_graph <- ggplot(power_to_toughness_by_tribe) +
     color = subtypes),
     alpha = .5) +
   scale_size(range = c(1,8)) +
-  scale_color_manual(values = c("forestgreen", "darkred", "red", "black")) +
+  scale_color_manual(values = c("darkred", "red", "forestgreen","black")) +
   scale_x_continuous(breaks = c(1,2,3,4,5,6,7,8,9,10)) +
   scale_y_continuous(breaks = c(1,2,3,4,5,6,7,8,9,10)) 
 
@@ -266,52 +306,8 @@ rarity_graph
 
 ```{r}
 
-humans <- master %>%
-    filter(grepl("Human", subtypes))
 
-human_wizards <- humans %>%
-  filter(grepl("Wizard", subtypes))
-
-
-filter_tribe_function <- function(target_tribe)
-{
-master %>%
-  filter(
-  grepl("Creature", type)) %>%
-  filter(
-  grepl("target_tribe", subtypes))
-}
-    
-filter_tribe_function("Wizard") 
-
-
-
-
-glimpse(master)
-
-```
    
-   
-   
-   
-   
-   
-   
-   
-   
-   
-    Wizard = `Human, Wizard`,				
-    Soldier = `Human, Soldier`,				
-    Knight = `Human, Knight`,				
-    Cleric = `Human, Cleric`,		
-    Warrior = `Human, Warrior`,			
-    Shaman = `Human, Shaman`,			
-    Rogue = `Human, Rogue`,
-    Druid = `Human, Druid` 
-          )
-
-
-
 #%>%
   group_by(
     subtypes
