@@ -1,0 +1,364 @@
+---
+title: "Project 2, New Version"
+author: "Will Cramer and Noah Gabriel"
+date: "11/7/2019"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+```{r}
+# Loading pre-recs 
+# need to figure out how to suppress this 
+library(tidyverse)
+library(lubridate)
+library(ggthemes) 
+cards <- read_csv("cards.csv")
+sets <- read_csv("sets.csv")
+```
+
+# Intro
+Some call it “The Beautiful Game.” Others fondly refer to it as, “America’s Favorite Pastime.” Yet to the communities who play, it’s simply called Magic: the Gathering. Magic is a wonderfully complex game and has evolved greatly since its initial release in 1993. A few core elements, however, have stayed the same. First, the premise of the game has not changed — it is still to defeat your opposing wizard in battle by summoning creatures, attacking them until their “life total” drops from 20 to 0. Second, the “mana system,” or method by which one plays cards, is the same. Mana is magical energy which has five colors: white, blue, black, red, and green, arranged in a pentagram (e.g., black’s “allies” are blue and red). 
+Each color possesses a distinct philosophy which is reflected in the design of the game. White is the color of justice, order, and the law. Blue is the color of knowledge, curiosity, and learning. Black loves power; its greed lets it cheat death. Red is impulsive and aggressive and draws on the element of fire. Green is the color of slow, overpowering growth.
+As the game has evolved, creatures have steadily grown in power because a design catch-22 called "power creep." In order to keep new cards relevant, the designers have slowly made creatures stronger; a Wurm in 2019 may exceed its (admittedly vast) 1993 counterpart. This phenomenon may challenge the traditional roles of certain creatures or colors, yet it also showcases the fluid, dynamic, creative landscape of Magic: The Gathering. 
+
+```{r}
+# Initial Wrangling 
+master <- cards %>%
+select(
+  name,
+  convertedManaCost,
+  manaCost,
+  colors,
+  power,
+  toughness,
+  rarity,
+  type,
+  subtypes,
+  edhrecRank,
+  setCode
+      )
+setnames <- sets %>% rename(setCode = code) %>% select(releaseDate, setCode) #preparing the sets data for join
+master <- master %>%
+  inner_join(setnames, by = c("setCode" = "setCode")) #joining the 2 data sets
+
+master <- master %>% filter(setCode != "UGL" & setCode != "UNH" & setCode != "UST") #filtering out all illegal sets
+
+master <- master %>% mutate(
+  year = year(releaseDate),
+  power = as.numeric(power, na.rm = TRUE),
+  toughness = as.numeric(toughness, na.rm = TRUE),
+  convertedManaCost = as.numeric(convertedManaCost, na.rm = TRUE)
+  #as.numeric changed the p and t so we could do calculations on them
+)
+
+# Creating creatures dataframe
+creatures <- master %>% filter(grepl("Creature",type))
+
+## checking work
+# creatures %>% filter(year == 2019, rarity == "common") #checking tp make sure the grepl worked
+# master %>% arrange(desc(power)) %>% select(name, power, setCode, toughness) #checking that they had been filtered out successfully -- there would be a 99 power creature at the top if it had not been
+```
+
+```{r}
+# determining the average value per for common creatures defined as power + toughness / cmc
+power_by_color <- creatures %>%
+filter(power >= 0 & toughness > 0) %>% filter(colors == "B" | colors == "U" | colors == "G" | colors == "W" | colors == "R") %>% filter( year >= 2008) %>%
+# i filtered here bc otherwise you get combos such as "RG" and I chose 2008 bc it was the first introduction of mythic rares
+group_by(year, colors) %>%
+summarise(average_power_ratio = (mean(power) + mean(toughness)) / mean(convertedManaCost))
+```
+
+The Magic: the Gathering universe is filled with mythical creatures of all types, from diminutive goblins to prodigious Beasts, which embody these colors of mana. Naturally, they differ in size. A Beast may crush a human underhoof, but stands but little chance before the rapacious maw of a Worldspine Wurm. 
+
+```{r}
+# Size of different tribes
+
+# note: we have to use grepl here to get creatures like Human Shaman to count as a Human
+tribes <- creatures %>%
+  filter(
+    subtypes == "Zombie" | subtypes == "Human" | subtypes == "Goblin" | subtypes == "Beast" | subtypes == "Wurm" | subtypes == "Angel" | subtypes == "Wizard" | subtypes == "Merfolk" | subtypes == "Demon" | subtypes == "Dragon"
+  ) %>%
+    filter(
+    power >= 0 & toughness > 0) %>%
+  group_by(subtypes) %>%
+  summarize(
+    mean_size = (mean(power) + mean(toughness))
+    )
+
+tribes_graph <- tribes %>%
+ggplot(aes(x=subtypes, y = mean_size, fill = subtypes)) +
+  geom_bar(stat = "identity", color = 'black') 
+
+tribes_graph +
+  scale_fill_manual(values = c("white", "darkgreen", "black", "red", "red", "white", "darkblue", "darkblue", "darkgreen", "black")) +
+  theme(
+  panel.background = element_rect(fill = "lightblue",
+                                colour = "lightblue",
+                                size = 0.5, linetype = "solid"),
+  panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "white"),
+  panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                colour = "white")) +
+  ylab("Size of Tribe Members") +
+  xlab("Creature Subtype")
+```
+
+
+Yet these species do not merely differ in size; they also differ in aggression. Every creature is assigned a “power” and “toughness,” represented by the first and second digits in the bottom right corner of their cards, respectively. Overall, power and toughness tend to be fairly balanced all time. This becomes clear when looking at the card pool of all creatures ever printed. 
+
+```{r}
+# Mapping power-to-toughness for desired filtered group
+
+power_to_toughness <- creatures %>%
+distinct(name, .keep_all = TRUE) %>% # this is just filtering out reprints by only getting cards with a distinct name
+filter(
+  power >= 0 & power < 20 & toughness > 0) %>%
+  filter(power != 3.5 & power != 2.5) %>%
+  filter(power >= 0 & toughness > 0) %>% 
+  filter(colors == "B" | colors == "U" | colors == "G" | colors == "W" | colors == "R") %>%
+group_by(
+    power, toughness) %>%
+summarize(
+  num_cases = sum(n())
+)
+power_to_toughness_graph <- ggplot(power_to_toughness) +
+  geom_point(aes(
+    x = toughness,
+    y = power,
+    size = num_cases),
+    alpha = .7, 
+    color = "black") +
+  scale_size(range = c(1,10)) +
+  scale_x_continuous(breaks = c(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16)) +
+  scale_y_continuous(breaks = c(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16)) +
+  theme(
+  panel.background = element_rect(fill = "lightblue",
+                                colour = "lightblue",
+                                size = 0.5, linetype = "solid"),
+  panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "white"),
+  panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                colour = "white")) +
+  xlab("Toughness") +
+  ylab("Power") +
+  scale_size_continuous(range = c(.5,15))
+
+power_to_toughness_graph
+```
+
+When broken down by tribe, however, these differences come to light. Never would one find a goblin with toughness far exceeding its power; conversely, the peaceful and hardy race of sentient trees called "Treefolk" are known for their gentle nature and impenetrable, tough bark. 
+
+```{r}
+power_to_toughness_by_tribe <- creatures %>%
+filter(
+  subtypes == "Zombie" | subtypes == "Goblin" | subtypes == "Beast" | subtypes == "Dragon") %>%
+group_by(
+    power, toughness, subtypes) %>%
+summarize(
+  num_cases = sum(n())
+          ) 
+
+power_to_toughness_by_tribe_graph <- ggplot(power_to_toughness_by_tribe) +
+  geom_point(aes(
+    x = toughness,
+    y = power,
+    size = num_cases,
+    color = subtypes),
+    alpha = .5) +
+  scale_size(range = c(1,8)) +
+  scale_color_manual(values = c("forestgreen", "darkred", "red", "black")) +
+  scale_x_continuous(breaks = c(1,2,3,4,5,6,7,8,9,10)) +
+  scale_y_continuous(breaks = c(1,2,3,4,5,6,7,8,9,10)) 
+
+power_to_toughness_by_tribe_graph <- power_to_toughness_by_tribe_graph +
+  theme(
+  panel.background = element_rect(fill = "lightblue",
+                                colour = "lightblue",
+                                size = 0.5, linetype = "solid"),
+  panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "white"),
+  panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                colour = "white")) +
+  facet_wrap(~subtypes, nrow = 2, ncol = 2)
+
+power_to_toughness_by_tribe_graph <- power_to_toughness_by_tribe_graph +
+theme(strip.text.x = element_text(size=10, angle=0, face = "bold"),
+          strip.background = element_rect(colour="black", fill="lightblue"))
+
+power_to_toughness_by_tribe_graph
+
+```
+
+While many creatures fall into specific tribes that commonly occur throughout the MTG multiverse, nearly as many do not. As a result, we must also look beyond tribe and at what is perhaps Magic's hallmark category breakdown: color. As mentioned above, colors have different assocations and their creatures help embody that notion. While green, the color of primieval beasts and monstrosities, has nearly always boasted more powerful creatures than any of its fellows and thus retained top-dog status, the hierarchy between the other four colors is less clear. What is obvious, however, is the data-backed notion of "power-creep," or the steady ascent of power levels over time, as can be seen clearly in this graphic, especially in the last five years.
+
+```{r}
+## Power Creep
+power_graph <- ggplot(power_by_color) +
+  geom_line(aes(
+    x = year, 
+    y = average_power_ratio, 
+    color = colors),
+    size = 1, 
+    alpha = .8)
+power_graph + scale_color_manual(values = c("black", "forestgreen", "red2", "dodgerblue", "lemonchiffon2")) +
+  theme_economist() +
+  theme(legend.position = "none") +
+  scale_x_continuous(breaks = c(2008,2010,2012,2014,2016,2018,2020)) +
+  xlab("Year of Release") +
+  ylab("(Power + Toughness) / CMC") +
+  theme(
+  panel.background = element_rect(fill = "lightblue",
+                                colour = "lightblue",
+                                size = 0.5, linetype = "solid"),
+  panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "white"),
+  panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                colour = "white") 
+  )
+```
+
+This notion becomes especially clear when examined through the lens of rarity. Wizards of the Coast prints most of its cards in what are called "booster packs," containing 10 "commons," 3 "uncommons" and one "rare." Commons are designed to be simpler and less powerful, serving as a baseline against which other cards are measured. 
+
+```{r}
+## Power Creep Pt. 2: Rarity 
+efficiency_rarity <- creatures %>%
+  filter(
+    name != "Phyrexian Dreadnaught" # this card costs 1 mana but is a 12/12 (it has a huge drawback)
+  ) %>%
+  filter(
+    power >= 0 & toughness > 0) %>%
+  filter(
+    year >= 2008) %>%
+  group_by(
+    year, rarity) %>%
+  summarize(
+    efficiency = (mean(power) + mean(toughness)) / mean(convertedManaCost)) %>%
+  filter(
+    rarity != "mythic"
+  )
+
+rarity_graph <- ggplot(efficiency_rarity) + 
+  geom_line(aes(
+    x = year, 
+    y = efficiency, 
+    color = rarity), 
+    size = 1, 
+    alpha = .7)
+
+rarity_graph <- rarity_graph + 
+  scale_color_manual(values = c("black", "goldenrod2", "azure4")) +
+  scale_x_continuous(breaks = c(2008,2010,2012,2014,2016,2018,2020)) +
+  theme(
+  panel.background = element_rect(fill = "lightblue",
+                                colour = "lightblue",
+                                size = 0.5, linetype = "solid"),
+  panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "white"),
+  panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                colour = "white")) +
+  xlab("Year of Release") +
+  ylab("Efficiency by Rarity")
+
+rarity_graph
+```
+
+
+```{r}
+
+humans <- master %>%
+    filter(grepl("Human", subtypes))
+
+human_wizards <- humans %>%
+  filter(grepl("Wizard", subtypes))
+
+
+filter_tribe_function <- function(target_tribe)
+{
+master %>%
+  filter(
+  grepl("Creature", type)) %>%
+  filter(
+  grepl("target_tribe", subtypes))
+}
+    
+filter_tribe_function("Wizard") 
+
+
+
+
+glimpse(master)
+
+```
+   
+   
+   
+   
+   
+   
+   
+   
+   
+   
+    Wizard = `Human, Wizard`,				
+    Soldier = `Human, Soldier`,				
+    Knight = `Human, Knight`,				
+    Cleric = `Human, Cleric`,		
+    Warrior = `Human, Warrior`,			
+    Shaman = `Human, Shaman`,			
+    Rogue = `Human, Rogue`,
+    Druid = `Human, Druid` 
+          )
+
+
+
+#%>%
+  group_by(
+    subtypes
+  ) %>%
+  summarize(
+    occupations = sum(n())) %>%
+  arrange(desc(occupations)) 
+
+
+
+
+
+```
+The trends across rarity mirror each other, keeping that gap of power levels the same. 
+
+
+
+
+
+
+
+
+
+
+
+
+### throwaway scratchwork section 
+creatures %>% # this shows we need to grepl
+  filter(
+    subtypes == "Wizard"
+  ) %>%
+  arrange(
+    desc(power)
+  )
+
+
+creatures %>%
+  group_by(subtypes) %>%
+  summarize(
+    num_creatures = sum(n())
+  ) %>%
+  arrange(desc(num_creatures))
+
+
+humans_by_occupation <- creatures %>% 
+  filter(
+    grepl("Human", subtypes) 
+  ) 
+
+
